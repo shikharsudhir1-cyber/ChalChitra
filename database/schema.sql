@@ -1,405 +1,153 @@
-
--- ============================================================
--- 1. USERS
--- ============================================================
+DROP TABLE IF EXISTS reviews, discounts, e_passes, payments, booking_seats, bookings,
+  shows, coupons, time_slots, movies, seats, screens, theatres, users CASCADE;
 
 CREATE TABLE users (
-    email           VARCHAR(100) PRIMARY KEY,
-    password_hash   VARCHAR(255) NOT NULL,
-    name            VARCHAR(100) NOT NULL,
-    age             INT NOT NULL,
-    role            VARCHAR(10) NOT NULL DEFAULT 'USER',
-    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT chk_user_age
-        CHECK (age >= 0),
-
-    CONSTRAINT chk_user_role
-        CHECK (role IN ('USER', 'ADMIN'))
+  email VARCHAR(255) PRIMARY KEY,
+  password_hash TEXT NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  age INT CHECK (age > 0),
+  role VARCHAR(10) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER','ADMIN')),
+  created_at TIMESTAMP DEFAULT NOW()
 );
-
-
--- ============================================================
--- 2. THEATRES
--- ============================================================
 
 CREATE TABLE theatres (
-    theatre_id      SERIAL PRIMARY KEY,
-    theatre_name    VARCHAR(100) NOT NULL,
-    location        VARCHAR(200) NOT NULL
+  theatre_id SERIAL PRIMARY KEY,
+  theatre_name VARCHAR(150) NOT NULL,
+  location VARCHAR(200) NOT NULL
 );
-
-
--- ============================================================
--- 3. SCREENS
--- ============================================================
 
 CREATE TABLE screens (
-    screen_id       SERIAL PRIMARY KEY,
-    theatre_id      INT NOT NULL,
-    screen_name     VARCHAR(50) NOT NULL,
-    total_seats     INT NOT NULL,
-
-    CONSTRAINT fk_screen_theatre
-        FOREIGN KEY (theatre_id)
-        REFERENCES theatres(theatre_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT chk_screen_seats
-        CHECK (total_seats > 0),
-
-    CONSTRAINT uq_screen_name
-        UNIQUE (theatre_id, screen_name)
+  screen_id SERIAL PRIMARY KEY,
+  theatre_id INT NOT NULL REFERENCES theatres ON DELETE CASCADE,
+  screen_name VARCHAR(50) NOT NULL,
+  total_seats INT NOT NULL CHECK (total_seats > 0),
+  UNIQUE (theatre_id, screen_name)
 );
-
-
--- ============================================================
--- 4. SEATS
--- ============================================================
 
 CREATE TABLE seats (
-    seat_id               SERIAL PRIMARY KEY,
-    screen_id             INT NOT NULL,
-    seat_number           VARCHAR(10) NOT NULL,
-    seat_location         VARCHAR(30) NOT NULL,
-    is_offline_reserved   BOOLEAN NOT NULL DEFAULT FALSE,
-
-    CONSTRAINT fk_seat_screen
-        FOREIGN KEY (screen_id)
-        REFERENCES screens(screen_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT uq_seat_number
-        UNIQUE (screen_id, seat_number)
+  seat_id SERIAL PRIMARY KEY,
+  screen_id INT NOT NULL REFERENCES screens ON DELETE CASCADE,
+  seat_number VARCHAR(10) NOT NULL,
+  seat_location VARCHAR(20) DEFAULT 'REGULAR',
+  is_offline_reserved BOOLEAN DEFAULT FALSE,
+  UNIQUE (screen_id, seat_number)
 );
-
-
--- ============================================================
--- 5. MOVIES
--- ============================================================
 
 CREATE TABLE movies (
-    movie_id        SERIAL PRIMARY KEY,
-    movie_name      VARCHAR(150) NOT NULL,
-    duration_min    INT NOT NULL,
-    language        VARCHAR(50) NOT NULL,
-    genre           VARCHAR(50) NOT NULL,
-    release_date    DATE,
-
-    CONSTRAINT chk_movie_duration
-        CHECK (duration_min > 0)
+  movie_id SERIAL PRIMARY KEY,
+  movie_name VARCHAR(200) NOT NULL,
+  duration_min INT CHECK (duration_min > 0),
+  language VARCHAR(50),
+  genre VARCHAR(50),
+  release_date DATE
 );
-
-
--- ============================================================
--- 6. TIME SLOTS
--- ============================================================
 
 CREATE TABLE time_slots (
-    slot_id         SERIAL PRIMARY KEY,
-    slot_label      VARCHAR(30) NOT NULL UNIQUE,
-    start_time      TIME NOT NULL,
-    end_time        TIME NOT NULL
+  slot_id SERIAL PRIMARY KEY,
+  slot_label VARCHAR(30) UNIQUE NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL
 );
-
-
--- ============================================================
--- 7. COUPONS
--- ============================================================
--- Coupons are created before bookings because bookings
--- contains a foreign key referencing coupons.
-
 
 CREATE TABLE coupons (
-    coupon_id        SERIAL PRIMARY KEY,
-    coupon_code      VARCHAR(50) NOT NULL UNIQUE,
-    qr_code          VARCHAR(255) UNIQUE,
-    discount_type    VARCHAR(20) NOT NULL,
-    discount_value   NUMERIC(10,2) NOT NULL,
-    valid_from       DATE NOT NULL,
-    valid_until      DATE NOT NULL,
-    usage_limit      INT,
-    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-
-    CONSTRAINT chk_coupon_type
-        CHECK (
-            discount_type IN ('FLAT', 'PERCENTAGE')
-        ),
-
-    CONSTRAINT chk_coupon_value
-        CHECK (discount_value >= 0),
-
-    CONSTRAINT chk_coupon_percentage
-        CHECK (
-            discount_type = 'FLAT'
-            OR discount_value <= 100
-        ),
-
-    CONSTRAINT chk_coupon_dates
-        CHECK (valid_until >= valid_from),
-
-    CONSTRAINT chk_coupon_usage
-        CHECK (
-            usage_limit IS NULL
-            OR usage_limit > 0
-        )
+  coupon_id SERIAL PRIMARY KEY,
+  coupon_code VARCHAR(30) UNIQUE NOT NULL,
+  qr_code VARCHAR(100) UNIQUE,
+  discount_type VARCHAR(10) NOT NULL CHECK (discount_type IN ('FLAT','PERCENT')),
+  discount_value NUMERIC(10,2) NOT NULL CHECK (discount_value > 0),
+  valid_from DATE NOT NULL,
+  valid_until DATE NOT NULL,
+  usage_limit INT NOT NULL DEFAULT 100,
+  is_active BOOLEAN DEFAULT TRUE,
+  CHECK (valid_until >= valid_from)
 );
-
-
--- ============================================================
--- 8. SHOWS
--- ============================================================
--- A show connects:
--- Movie + Screen + Time Slot + Date + Price
-
 
 CREATE TABLE shows (
-    show_id         SERIAL PRIMARY KEY,
-    movie_id        INT NOT NULL,
-    screen_id       INT NOT NULL,
-    slot_id         INT NOT NULL,
-    show_date       DATE NOT NULL,
-    base_price      NUMERIC(10,2) NOT NULL,
-
-    CONSTRAINT fk_show_movie
-        FOREIGN KEY (movie_id)
-        REFERENCES movies(movie_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_show_screen
-        FOREIGN KEY (screen_id)
-        REFERENCES screens(screen_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_show_slot
-        FOREIGN KEY (slot_id)
-        REFERENCES time_slots(slot_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT chk_show_price
-        CHECK (base_price >= 0),
-
-    CONSTRAINT uq_show
-        UNIQUE (movie_id, screen_id, slot_id, show_date)
+  show_id SERIAL PRIMARY KEY,
+  movie_id INT NOT NULL REFERENCES movies ON DELETE CASCADE,
+  screen_id INT NOT NULL REFERENCES screens ON DELETE CASCADE,
+  slot_id INT NOT NULL REFERENCES time_slots,
+  show_date DATE NOT NULL,
+  base_price NUMERIC(10,2) NOT NULL CHECK (base_price >= 0),
+  UNIQUE (movie_id, screen_id, slot_id, show_date)
 );
-
-
--- ============================================================
--- 9. BOOKINGS
--- ============================================================
-
 
 CREATE TABLE bookings (
-    booking_id       SERIAL PRIMARY KEY,
-    user_email       VARCHAR(100) NOT NULL,
-    show_id          INT NOT NULL,
-    coupon_id        INT,
-    booking_time     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    total_amount     NUMERIC(10,2) NOT NULL,
-    booking_status   VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-
-    CONSTRAINT fk_booking_user
-        FOREIGN KEY (user_email)
-        REFERENCES users(email)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_booking_show
-        FOREIGN KEY (show_id)
-        REFERENCES shows(show_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT fk_booking_coupon
-        FOREIGN KEY (coupon_id)
-        REFERENCES coupons(coupon_id)
-        ON DELETE SET NULL,
-
-    CONSTRAINT chk_booking_amount
-        CHECK (total_amount >= 0),
-
-    CONSTRAINT chk_booking_status
-        CHECK (
-            booking_status IN (
-                'PENDING',
-                'CONFIRMED',
-                'CANCELLED'
-            )
-        )
+  booking_id SERIAL PRIMARY KEY,
+  user_email VARCHAR(255) NOT NULL REFERENCES users,
+  show_id INT NOT NULL REFERENCES shows,
+  coupon_id INT REFERENCES coupons,
+  booking_time TIMESTAMP DEFAULT NOW(),
+  total_amount NUMERIC(10,2) NOT NULL CHECK (total_amount >= 0),
+  booking_status VARCHAR(12) NOT NULL DEFAULT 'PENDING'
+    CHECK (booking_status IN ('PENDING','CONFIRMED','CANCELLED'))
 );
-
-
--- ============================================================
--- 10. BOOKING_SEATS
--- ============================================================
--- This is the bridge table between bookings and seats.
--- One booking can contain multiple seats.
-
 
 CREATE TABLE booking_seats (
-    booking_id      INT NOT NULL,
-    seat_id         INT NOT NULL,
-    price           NUMERIC(10,2) NOT NULL,
-
-    CONSTRAINT pk_booking_seats
-        PRIMARY KEY (booking_id, seat_id),
-
-    CONSTRAINT fk_booking_seat_booking
-        FOREIGN KEY (booking_id)
-        REFERENCES bookings(booking_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_booking_seat_seat
-        FOREIGN KEY (seat_id)
-        REFERENCES seats(seat_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT chk_booking_seat_price
-        CHECK (price >= 0)
+  booking_id INT REFERENCES bookings ON DELETE CASCADE,
+  seat_id INT REFERENCES seats,
+  price NUMERIC(10,2) NOT NULL,
+  PRIMARY KEY (booking_id, seat_id)
 );
-
-
--- ============================================================
--- 11. PAYMENTS
--- ============================================================
-
 
 CREATE TABLE payments (
-    payment_id       SERIAL PRIMARY KEY,
-    booking_id       INT NOT NULL UNIQUE,
-    amount           NUMERIC(10,2) NOT NULL,
-    payment_time     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    payment_method   VARCHAR(30) NOT NULL,
-    payment_status   VARCHAR(20) NOT NULL,
-    transaction_ref  VARCHAR(100) UNIQUE,
-
-    CONSTRAINT fk_payment_booking
-        FOREIGN KEY (booking_id)
-        REFERENCES bookings(booking_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT chk_payment_amount
-        CHECK (amount >= 0),
-
-    CONSTRAINT chk_payment_method
-        CHECK (
-            payment_method IN (
-                'UPI',
-                'CARD',
-                'NET_BANKING',
-                'CASH'
-            )
-        ),
-
-    CONSTRAINT chk_payment_status
-        CHECK (
-            payment_status IN (
-                'PENDING',
-                'SUCCESS',
-                'FAILED'
-            )
-        )
+  payment_id SERIAL PRIMARY KEY,
+  booking_id INT UNIQUE NOT NULL REFERENCES bookings,
+  amount NUMERIC(10,2) NOT NULL,
+  payment_time TIMESTAMP DEFAULT NOW(),
+  payment_method VARCHAR(15) NOT NULL CHECK (payment_method IN ('UPI','CARD','NET_BANKING','CASH')),
+  payment_status VARCHAR(10) NOT NULL CHECK (payment_status IN ('PENDING','SUCCESS','FAILED')),
+  transaction_ref VARCHAR(60) UNIQUE NOT NULL
 );
-
-
--- ============================================================
--- 12. E-PASSES
--- ============================================================
-
 
 CREATE TABLE e_passes (
-    epass_id       SERIAL PRIMARY KEY,
-    booking_id     INT NOT NULL UNIQUE,
-    qr_code        VARCHAR(255) NOT NULL UNIQUE,
-    generated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT fk_epass_booking
-        FOREIGN KEY (booking_id)
-        REFERENCES bookings(booking_id)
-        ON DELETE CASCADE
+  epass_id SERIAL PRIMARY KEY,
+  booking_id INT UNIQUE NOT NULL REFERENCES bookings,
+  qr_code VARCHAR(200) UNIQUE NOT NULL,
+  generated_at TIMESTAMP DEFAULT NOW()
 );
-
-
--- ============================================================
--- 13. DISCOUNTS
--- ============================================================
--- A discount can apply to an entire show or to a particular
--- seat for that show.
-
 
 CREATE TABLE discounts (
-    discount_id      SERIAL PRIMARY KEY,
-    show_id          INT NOT NULL,
-    seat_id          INT,
-    discount_name    VARCHAR(100) NOT NULL,
-    discount_type    VARCHAR(20) NOT NULL,
-    discount_value   NUMERIC(10,2) NOT NULL,
-    valid_from       DATE NOT NULL,
-    valid_until      DATE NOT NULL,
-    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-
-    CONSTRAINT fk_discount_show
-        FOREIGN KEY (show_id)
-        REFERENCES shows(show_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_discount_seat
-        FOREIGN KEY (seat_id)
-        REFERENCES seats(seat_id)
-        ON DELETE RESTRICT,
-
-    CONSTRAINT chk_discount_type
-        CHECK (
-            discount_type IN (
-                'FLAT',
-                'PERCENTAGE'
-            )
-        ),
-
-    CONSTRAINT chk_discount_value
-        CHECK (discount_value >= 0),
-
-    CONSTRAINT chk_discount_percentage
-        CHECK (
-            discount_type = 'FLAT'
-            OR discount_value <= 100
-        ),
-
-    CONSTRAINT chk_discount_dates
-        CHECK (valid_until >= valid_from)
+  discount_id SERIAL PRIMARY KEY,
+  show_id INT NOT NULL REFERENCES shows ON DELETE CASCADE,
+  seat_id INT REFERENCES seats ON DELETE CASCADE,
+  discount_name VARCHAR(100) NOT NULL,
+  discount_type VARCHAR(10) NOT NULL CHECK (discount_type IN ('FLAT','PERCENT')),
+  discount_value NUMERIC(10,2) NOT NULL CHECK (discount_value > 0),
+  valid_from DATE NOT NULL,
+  valid_until DATE NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE
 );
-
-
--- ============================================================
--- 14. REVIEWS
--- ============================================================
-
 
 CREATE TABLE reviews (
-    review_id       SERIAL PRIMARY KEY,
-    user_email      VARCHAR(100) NOT NULL,
-    movie_id        INT NOT NULL,
-    theatre_id      INT NOT NULL,
-    rating          INT NOT NULL,
-    review_text     VARCHAR(500),
-    review_date     DATE NOT NULL DEFAULT CURRENT_DATE,
-
-    CONSTRAINT fk_review_user
-        FOREIGN KEY (user_email)
-        REFERENCES users(email)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_review_movie
-        FOREIGN KEY (movie_id)
-        REFERENCES movies(movie_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_review_theatre
-        FOREIGN KEY (theatre_id)
-        REFERENCES theatres(theatre_id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT chk_review_rating
-        CHECK (rating BETWEEN 1 AND 5),
-
-    CONSTRAINT uq_user_movie_theatre_review
-        UNIQUE (user_email, movie_id, theatre_id)
+  review_id SERIAL PRIMARY KEY,
+  user_email VARCHAR(255) NOT NULL REFERENCES users,
+  movie_id INT NOT NULL REFERENCES movies,
+  theatre_id INT NOT NULL REFERENCES theatres,
+  rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  review_text TEXT,
+  review_date TIMESTAMP DEFAULT NOW(),
+  UNIQUE (user_email, movie_id, theatre_id)
 );
+
+-- ===== SAMPLE DATA (development only) =====
+INSERT INTO theatres (theatre_name, location) VALUES
+ ('PVR Treasure Island', 'Indore'), ('Cinepolis Malhar Mega', 'Indore');
+INSERT INTO screens (theatre_id, screen_name, total_seats) VALUES (1,'Screen 1',20),(2,'Screen 1',20);
+INSERT INTO seats (screen_id, seat_number, seat_location)
+SELECT s.screen_id, r || n, CASE WHEN r IN ('A','B') THEN 'REGULAR' ELSE 'PREMIUM' END
+FROM screens s, unnest(ARRAY['A','B','C','D']) r, generate_series(1,5) n;
+INSERT INTO movies (movie_name,duration_min,language,genre,release_date) VALUES
+ ('Inception',148,'English','Sci-Fi','2010-07-16'),
+ ('3 Idiots',170,'Hindi','Comedy','2009-12-25');
+INSERT INTO time_slots (slot_label,start_time,end_time) VALUES
+ ('Morning','10:00','12:30'),('Evening','18:00','20:30');
+INSERT INTO shows (movie_id,screen_id,slot_id,show_date,base_price) VALUES
+ (1,1,1,CURRENT_DATE+1,250),(2,1,2,CURRENT_DATE+1,200),(1,2,2,CURRENT_DATE+1,300);
+INSERT INTO coupons (coupon_code,discount_type,discount_value,valid_from,valid_until,usage_limit)
+VALUES ('WELCOME50','FLAT',50,CURRENT_DATE,CURRENT_DATE+365,100),
+       ('SAVE10','PERCENT',10,CURRENT_DATE,CURRENT_DATE+365,100);
+INSERT INTO discounts (show_id,seat_id,discount_name,discount_type,discount_value,valid_from,valid_until)
+VALUES (1,NULL,'Morning offer','PERCENT',10,CURRENT_DATE,CURRENT_DATE+30);
+-- Admin: register via the app, then run:
+-- UPDATE users SET role='ADMIN' WHERE email='admin@chalchitra.com';
